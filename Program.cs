@@ -9,11 +9,21 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------- 1. Database (PostgreSQL via Neon) ----------
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.");
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(connectionString));
 
 // ---------- 2. JWT Authentication ----------
-var jwtSecret = builder.Configuration["Jwt:Secret"]!;
+var jwtSecret = builder.Configuration["Jwt:Secret"];
+var jwtIssuer = builder.Configuration["Jwt:Issuer"];
+var jwtAudience = builder.Configuration["Jwt:Audience"];
+
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+    throw new InvalidOperationException("Jwt:Secret is missing or shorter than 32 characters.");
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -27,8 +37,8 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
     };
 });
@@ -38,15 +48,22 @@ builder.Services.AddAuthorization();
 // ---------- 3. Custom services ----------
 builder.Services.AddScoped<TokenService>();
 
-// ---------- 4. CORS (taaki Angular frontend backend ko call kar sake) ----------
+// ---------- 4. CORS (origins config/env se aayenge) ----------
+// Comma-separated allowed hai, jaise: "https://sprintboard.netlify.app,http://localhost:4200"
+var allowedOrigins = (builder.Configuration["Cors:AllowedOrigin"] ?? "")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Select(o => o.TrimEnd('/'))
+    .ToArray();
+
+// Agar kuch configure nahi hai toh sirf local Angular allow hoga
+if (allowedOrigins.Length == 0)
+    allowedOrigins = new[] { "http://localhost:4200" };
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins(
-                "http://localhost:4200",              // local Angular dev server
-                "https://your-frontend.onrender.com"  // deploy ke baad iski jagah apna actual frontend URL daalna
-              )
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
@@ -76,18 +93,20 @@ builder.Services.AddSwaggerGen(options =>
 var app = builder.Build();
 
 // ---------- Middleware pipeline ----------
+// Swagger: Render pe testing ke liye hamesha on (baad mein chaaho toh IsDevelopment() mein daal dena)
+app.UseSwagger();
+app.UseSwaggerUI();
+
+// HTTPS redirection sirf local mein (Render khud HTTPS handle karta hai)
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(); // local pe /swagger pe jaake saare APIs test kar sakte ho
+    app.UseHttpsRedirection();
 }
 
-app.UseHttpsRedirection();
+app.UseCors("AllowFrontend"); // Authentication se pehle
 
-app.UseCors("AllowFrontend"); // Authentication se pehle CORS lagana zaroori hai
-
-app.UseAuthentication(); // pehle check karo user kaun hai (token verify)
-app.UseAuthorization();  // phir check karo use permission hai ya nahi
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 
