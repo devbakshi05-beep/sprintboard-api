@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "KanbanBackend": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:61723;http://localhost:61724"
+    }
+  }
+}
