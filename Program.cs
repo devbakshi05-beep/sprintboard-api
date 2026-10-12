@@ -109,5 +109,38 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapGet("/debug/check-config", async (IConfiguration config) =>
+{
+    var result = new Dictionary<string, string>();
+
+    // 1. Jwt Secret: HS256 ke liye kam se kam 32 characters chahiye
+    var secret = config["Jwt:Secret"];
+    result["Jwt__Secret"] = string.IsNullOrEmpty(secret) ? "MISSING"
+        : secret.Length < 32 ? $"TOO SHORT ({secret.Length} chars, 32+ chahiye)"
+        : $"OK ({secret.Length} chars)";
+
+    // 2. Issuer / Audience: sirf set hain ya nahi
+    result["Jwt__Issuer"] = string.IsNullOrEmpty(config["Jwt:Issuer"]) ? "MISSING" : "SET";
+    result["Jwt__Audience"] = string.IsNullOrEmpty(config["Jwt:Audience"]) ? "MISSING" : "SET";
+
+    // 3. Database: asli connection try karo
+    try
+    {
+        var cs = config.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrEmpty(cs)) result["DB"] = "MISSING";
+        else
+        {
+            await using var conn = new Npgsql.NpgsqlConnection(cs);
+            await conn.OpenAsync();
+            result["DB"] = "CONNECTED OK";
+        }
+    }
+    catch (Exception ex)
+    {
+        result["DB"] = "FAILED: " + ex.GetType().Name; // message jaan-bujh ke nahi dikha rahe
+    }
+
+    return Results.Json(result);
+});
 
 app.Run();
