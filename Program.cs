@@ -137,7 +137,8 @@ app.MapGet("/debug/check-config", async (IConfiguration config) =>
     }
     catch (Exception ex)
     {
-        result["DB"] = "FAILED: " + ex.GetType().Name; // message jaan-bujh ke nahi dikha rahe
+        result["DB"] = "FAILED: " + ex.GetType().Name + " | " + ex.Message
+    + " | inner: " + ex.InnerException?.GetType().Name + " " + ex.InnerException?.Message;
     }
 
     return Results.Json(result);
